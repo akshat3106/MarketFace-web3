@@ -7,29 +7,33 @@ import fs from "fs";
 import dotenv from "dotenv";
 
 dotenv.config();
+
 const app = express();
 app.use(express.json());
 
-// ---------------- Blockchain Setup ----------------
+//blockchain setup
 const abi = JSON.parse(fs.readFileSync("./abi.json", "utf8"));
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 const contract = new ethers.Contract(process.env.CONTRACT_ADDRESS, abi, wallet);
 
-// ---------------- Pinata Setup ----------------
+//pinata setup
 const PINATA_API_KEY = process.env.PINATA_API_KEY;
 const PINATA_SECRET_API_KEY = process.env.PINATA_SECRET_API_KEY;
-const pinataBaseUrl = "https://api.pinata.cloud/pinning";
+const PINATA_BASE_URL = "https://api.pinata.cloud/pinning";
 
-// Upload image buffer to Pinata
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+//image upload to ipfs
 async function uploadImageToPinata(fileBuffer, fileName) {
   const formData = new FormData();
   formData.append("file", fileBuffer, { filename: fileName });
 
-  const response = await axios.post(`${pinataBaseUrl}/pinFileToIPFS`, formData, {
-    maxBodyLength: "Infinity",
+  const response = await axios.post(`${PINATA_BASE_URL}/pinFileToIPFS`, formData, {
+    maxBodyLength: Infinity,
     headers: {
-      "Content-Type": `multipart/form-data; boundary=${formData._boundary}`,
+      ...formData.getHeaders(),
       pinata_api_key: PINATA_API_KEY,
       pinata_secret_api_key: PINATA_SECRET_API_KEY,
     },
@@ -38,20 +42,19 @@ async function uploadImageToPinata(fileBuffer, fileName) {
   return response.data.IpfsHash;
 }
 
-// Upload JSON metadata to Pinata
+//upload json metadata to ipfs
 async function uploadJSONToPinata(jsonData) {
-  const response = await axios.post(`${pinataBaseUrl}/pinJSONToIPFS`, jsonData, {
+  const response = await axios.post(`${PINATA_BASE_URL}/pinJSONToIPFS`, jsonData, {
     headers: {
       "Content-Type": "application/json",
       pinata_api_key: PINATA_API_KEY,
       pinata_secret_api_key: PINATA_SECRET_API_KEY,
     },
   });
-
   return response.data.IpfsHash;
 }
 
-// ---------------- Blockchain Functions ----------------
+//blockchain functions
 async function mintNFT(to, metadataUri) {
   const hash = ethers.keccak256(ethers.toUtf8Bytes(metadataUri));
   const tx = await contract.safeMint(to, metadataUri, hash);
@@ -70,17 +73,14 @@ async function getTokenURI(tokenId) {
   return await contract.tokenURI(tokenId);
 }
 
-// ---------------- API Endpoints ----------------
 
-// Health check
-app.head("/ping", (req, res) => {
-  res.sendStatus(200);
-});
 
-// Mint NFT
+app.head("/ping", (req, res) => res.sendStatus(200));
+
+//mint nft
 app.post("/mint", async (req, res) => {
   try {
-    const { to, metadataUri } = req.body; // metadataUri = ipfs://CID
+    const { to, metadataUri } = req.body;
     if (!to || !metadataUri) {
       return res.status(400).json({ error: "to and metadataUri are required" });
     }
@@ -92,48 +92,61 @@ app.post("/mint", async (req, res) => {
   }
 });
 
-
-// Evolve NFT with AI-generated image
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
-app.post("/evolve/:tokenId", upload.single("file"), async (req, res) => {
+//evolve nft
+app.post("/evolve/:tokenId", async (req, res) => {
   try {
     const { tokenId } = req.params;
-    const { attributes } = req.body;
-    const fileBuffer = req.file.buffer;
-    const fileName = req.file.originalname;
+    const { metadataUri } = req.body;
 
-    // 1. Upload image
-    const imageCid = await uploadImageToPinata(fileBuffer, fileName);
+    if (!metadataUri) {
+      return res.status(400).json({ error: "metadataUri is required" });
+    }
 
-    // 2. Create metadata
-    const metadata = {
-      name: `Evolved NFT #${tokenId}`,
-      description: "This NFT has evolved via AI.",
-      image: `ipfs://${imageCid}`,
-      attributes: attributes ? JSON.parse(attributes) : {},
-    };
-
-    // 3. Upload metadata JSON
-    const metadataCid = await uploadJSONToPinata(metadata);
-
-    // 4. Commit evolution on blockchain
-    const txHash = await evolveNFT(tokenId, `ipfs://${metadataCid}`);
-
-    res.json({
-      success: true,
-      txHash,
-      imageCid,
-      metadataCid,
-    });
+    const txHash = await evolveNFT(tokenId, metadataUri);
+    res.json({ success: true, txHash, tokenId, metadataUri });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Fetch updated tokenURI
+//upload image
+app.post("/upload-image", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded. Field name must be 'file'." });
+    }
+
+    const { name, description, attributes } = req.body;
+    const fileBuffer = req.file.buffer;
+    const fileName = req.file.originalname;
+
+    console.log(`✅ Received file: ${fileName}`);
+
+    const imageCid = await uploadImageToPinata(fileBuffer, fileName);
+
+    const metadata = {
+      name: name || "Untitled NFT",
+      description: description || "No description provided",
+      image: `ipfs://${imageCid}`,
+      attributes: attributes ? JSON.parse(attributes) : [],
+    };
+
+    const metadataCid = await uploadJSONToPinata(metadata);
+
+    res.json({
+      success: true,
+      imageCid,
+      metadataCid,
+      metadataUri: `ipfs://${metadataCid}`,
+      metadata,
+    });
+  } catch (err) {
+    console.error("Upload Error:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 app.get("/token/:tokenId", async (req, res) => {
   try {
     const { tokenId } = req.params;
@@ -144,8 +157,14 @@ app.get("/token/:tokenId", async (req, res) => {
   }
 });
 
-// ---------------- Server ----------------
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled Error:", err);
+  res.status(400).json({ error: err.message });
+});
+
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
