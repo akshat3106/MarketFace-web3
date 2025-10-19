@@ -58,8 +58,15 @@ async function uploadJSONToPinata(jsonData) {
 async function mintNFT(to, metadataUri) {
   const hash = ethers.keccak256(ethers.toUtf8Bytes(metadataUri));
   const tx = await contract.safeMint(to, metadataUri, hash);
-  await tx.wait();
-  return tx.hash;
+
+  const receipt = await tx.wait();
+  const tokenId = await contract.callStatic.safeMint(to, metadataUri, hash);
+  return {
+    success: true,
+    txHash: tx.hash,
+    tokenId: tokenId.toString(),
+    metadataUri,
+  };
 }
 
 async function evolveNFT(tokenId, metadataUri) {
@@ -84,13 +91,13 @@ app.post("/mint", async (req, res) => {
     if (!to || !metadataUri) {
       return res.status(400).json({ error: "to and metadataUri are required" });
     }
-
-    const txHash = await mintNFT(to, metadataUri);
-    res.json({ success: true, txHash, metadataUri });
+    const result = await mintNFT(to, metadataUri);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 //evolve nft
 app.post("/evolve/:tokenId", async (req, res) => {

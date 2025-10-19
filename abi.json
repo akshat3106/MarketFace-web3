@@ -10,7 +10,7 @@
     "stateMutability": "nonpayable",
     "type": "constructor"
   },
-  {
+  { 
     "anonymous": false,
     "inputs": [
       {"indexed": true, "internalType": "address", "name": "owner", "type": "address"},
@@ -104,7 +104,9 @@
       {"internalType": "bytes32", "name": "initialHash", "type": "bytes32"}
     ],
     "name": "safeMint",
-    "outputs": [],
+    "outputs": [
+      {"internalType": "uint256", "name": "", "type": "uint256"}  
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },

@@ -1,5 +1,5 @@
 
-# 🖼️ Evolving NFT Backend  
+# MarketFace Web3  
 
 This is an **Express.js backend** for handling NFT minting and evolution with metadata and images stored on **Pinata IPFS**. It integrates with an Ethereum-compatible blockchain using **ethers.js**.  
 
