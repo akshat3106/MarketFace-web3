@@ -56,18 +56,23 @@ async function uploadJSONToPinata(jsonData) {
 
 //blockchain functions
 async function mintNFT(to, metadataUri) {
-  const hash = ethers.keccak256(ethers.toUtf8Bytes(metadataUri));
-  const tx = await contract.safeMint(to, metadataUri, hash);
+  if (!contract) throw new Error("Contract not initialized properly");
 
+  const hash = ethers.keccak256(ethers.toUtf8Bytes(metadataUri));
+  // Mint the NFT
+  const tx = await contract.safeMint(to, metadataUri, hash);
   const receipt = await tx.wait();
-  const tokenId = await contract.callStatic.safeMint(to, metadataUri, hash);
+  // Get tokenId from event logs
+  const event = receipt.logs.find(log => log.fragment?.name === "Transfer");
+  const tokenId = event ? ethers.getBigInt(event.args.tokenId).toString() : "unknown";
   return {
     success: true,
     txHash: tx.hash,
-    tokenId: tokenId.toString(),
+    tokenId,
     metadataUri,
   };
 }
+
 
 async function evolveNFT(tokenId, metadataUri) {
   const hash = ethers.keccak256(ethers.toUtf8Bytes(metadataUri));
